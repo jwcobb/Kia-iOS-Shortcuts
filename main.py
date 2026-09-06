@@ -9,6 +9,11 @@ from dataclasses import dataclass, field
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from hyundai_kia_connect_api import ClimateRequestOptions, VehicleManager
+from hyundai_kia_connect_api.exceptions import (
+    AuthenticationError,
+    AuthenticationOTPRequired,
+    ConsentRequiredError,
+)
 
 load_dotenv()
 # Upstream libraries can log credentials or vehicle state at verbose levels.
@@ -74,10 +79,17 @@ def create_app(env=None, manager_factory=VehicleManager):
         try:
             v = select(account)
             return jsonify(alias=alias, id=v.id, vin=v.VIN, name=v.name, model=v.model)
+        except AuthenticationOTPRequired:
+            return jsonify(error='Kia requires a one-time verification code', code='AuthenticationOTPRequired'), 401
+        except ConsentRequiredError:
+            return jsonify(error='Kia Connect terms or consent must be accepted for this account', code='ConsentRequiredError'), 401
+        except AuthenticationError:
+            return jsonify(error='Kia authentication failed; verify the account email, password, PIN, and Kia Connect access', code='AuthenticationError'), 401
         except LookupError:
             return jsonify(error='Configured VIN not found uniquely on this account'), 422
-        except Exception:
-            return jsonify(error='Kia authentication or vehicle discovery failed; check credentials and any Kia MFA requirement'), 502
+        except Exception as error:
+            app.logger.warning('Vehicle discovery failed for %s: %s', alias, type(error).__name__)
+            return jsonify(error='Kia vehicle discovery failed', code=type(error).__name__), 502
         finally:
             account.lock.release()
 
@@ -103,10 +115,17 @@ def create_app(env=None, manager_factory=VehicleManager):
             else:
                 fn(v.id)
             return jsonify(status='submitted', vehicle=alias, action=action), 202
+        except AuthenticationOTPRequired:
+            return jsonify(error='Kia requires a one-time verification code; command not sent', code='AuthenticationOTPRequired'), 401
+        except ConsentRequiredError:
+            return jsonify(error='Kia Connect terms or consent must be accepted; command not sent', code='ConsentRequiredError'), 401
+        except AuthenticationError:
+            return jsonify(error='Kia authentication failed; command not sent', code='AuthenticationError'), 401
         except LookupError:
             return jsonify(error='Configured VIN not found uniquely; command not sent'), 422
-        except Exception:
-            return jsonify(error='Kia request failed; completion is unknown. Check the Kia app before retrying.'), 502
+        except Exception as error:
+            app.logger.warning('Kia command failed for %s/%s: %s', alias, action, type(error).__name__)
+            return jsonify(error='Kia request failed; completion is unknown. Check the Kia app before retrying.', code=type(error).__name__), 502
         finally:
             account.lock.release()
 
