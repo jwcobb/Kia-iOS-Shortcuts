@@ -12,7 +12,7 @@ def setup():
             env[f'{alias}_{key}'] = value
     def factory(**kwargs):
         m = Mock()
-        m.vehicles = {k: SimpleNamespace(id=k, vin=v, name=k, model=k) for k,v in [('wrong','C'*17), ('telluride','A'*17), ('ev9','B'*17)]}
+        m.vehicles = {k: SimpleNamespace(id=k, VIN=v, name=k, model=k) for k,v in [('wrong','C'*17), ('telluride','A'*17), ('ev9','B'*17)]}
         managers.append(m)
         return m
     return create_app(env, factory).test_client(), managers
@@ -56,7 +56,7 @@ def test_error_does_not_leak_secrets(setup):
 
 def test_duplicate_vin_fails_closed(setup):
     c, ms = setup
-    ms[1].vehicles['duplicate'] = SimpleNamespace(id='duplicate', vin='B'*17)
+    ms[1].vehicles['duplicate'] = SimpleNamespace(id='duplicate', VIN='B'*17)
     assert c.post('/vehicles/ev9/unlock_car', headers=H).status_code == 422
     ms[1].unlock.assert_not_called()
 

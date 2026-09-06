@@ -59,7 +59,7 @@ def create_app(env=None, manager_factory=VehicleManager):
 
     def select(account):
         account.manager.check_and_refresh_token()
-        matches = [v for v in account.manager.vehicles.values() if (v.vin or '').upper() == account.vin]
+        matches = [v for v in account.manager.vehicles.values() if (v.VIN or '').upper() == account.vin]
         if len(matches) != 1:
             raise LookupError('Configured VIN is not uniquely available on this account')
         return matches[0]
@@ -73,7 +73,7 @@ def create_app(env=None, manager_factory=VehicleManager):
             return jsonify(error='Account busy'), 409
         try:
             v = select(account)
-            return jsonify(alias=alias, id=v.id, vin=v.vin, name=v.name, model=v.model)
+            return jsonify(alias=alias, id=v.id, vin=v.VIN, name=v.name, model=v.model)
         except LookupError:
             return jsonify(error='Configured VIN not found uniquely on this account'), 422
         except Exception:
