@@ -27,6 +27,7 @@ logging.getLogger('hyundai_kia_connect_api').setLevel(logging.CRITICAL)
 class Account:
     manager: object
     vin: str
+    vehicle_id: str | None
     token_path: Path
     lock: object = field(default_factory=threading.Lock)
     last_command: float = float('-inf')
@@ -69,7 +70,7 @@ def create_app(env=None, manager_factory=VehicleManager):
         token_path = token_directory / f'{alias}.json'
         accounts[alias] = Account(manager_factory(region=3, brand=1,
             username=fields['USERNAME'], password=env[f'{prefix}_PASSWORD'], pin=fields['PIN'], token=load_token(token_path)),
-            fields['VIN'].upper(), token_path)
+            fields['VIN'].upper(), env.get(f'{prefix}_VEHICLE_ID') or None, token_path)
 
     @app.before_request
     def authorize():
@@ -90,10 +91,36 @@ def create_app(env=None, manager_factory=VehicleManager):
 
     def select(account):
         account.manager.check_and_refresh_token()
-        matches = [v for v in account.manager.vehicles.values() if (v.VIN or '').upper() == account.vin]
-        if len(matches) != 1:
-            raise LookupError('Configured VIN is not uniquely available on this account')
-        return matches[0]
+        if not account.vehicle_id:
+            raise LookupError('Kia vehicle ID has not been configured')
+        vehicle = account.manager.vehicles.get(account.vehicle_id)
+        if vehicle is None:
+            raise LookupError('Configured Kia vehicle ID is not available on this account')
+        return vehicle
+
+    @app.get('/vehicles/<alias>/discover')
+    def discover(alias):
+        account = accounts.get(alias)
+        if account is None:
+            return jsonify(error='Unknown vehicle'), 404
+        if not account.lock.acquire(blocking=False):
+            return jsonify(error='Account busy'), 409
+        try:
+            account.manager.check_and_refresh_token()
+            vehicles = [
+                {'id': vehicle.id, 'name': vehicle.name, 'model': vehicle.model}
+                for vehicle in account.manager.vehicles.values()
+            ]
+            return jsonify(vehicle=alias, vehicles=vehicles), 200
+        except AuthenticationOTPRequired:
+            return jsonify(error='Kia requires a one-time verification code', code='AuthenticationOTPRequired'), 401
+        except AuthenticationError:
+            return jsonify(error='Kia authentication failed', code='AuthenticationError'), 401
+        except Exception as error:
+            app.logger.warning('Vehicle discovery failed for %s: %s', alias, type(error).__name__)
+            return jsonify(error='Kia vehicle discovery failed', code=type(error).__name__), 502
+        finally:
+            account.lock.release()
 
     @app.get('/vehicles/<alias>')
     def vehicle(alias):
@@ -104,7 +131,7 @@ def create_app(env=None, manager_factory=VehicleManager):
             return jsonify(error='Account busy'), 409
         try:
             v = select(account)
-            return jsonify(alias=alias, id=v.id, vin=v.VIN, name=v.name, model=v.model)
+            return jsonify(alias=alias, id=v.id, vin=account.vin, name=v.name, model=v.model)
         except AuthenticationOTPRequired:
             return jsonify(error='Kia requires a one-time verification code', code='AuthenticationOTPRequired'), 401
         except ConsentRequiredError:
@@ -112,7 +139,7 @@ def create_app(env=None, manager_factory=VehicleManager):
         except AuthenticationError:
             return jsonify(error='Kia authentication failed; verify the account email, password, PIN, and Kia Connect access', code='AuthenticationError'), 401
         except LookupError:
-            return jsonify(error='Configured VIN not found uniquely on this account'), 422
+            return jsonify(error='Configured Kia vehicle ID is unavailable'), 422
         except Exception as error:
             app.logger.warning('Vehicle discovery failed for %s: %s', alias, type(error).__name__)
             return jsonify(error='Kia vehicle discovery failed', code=type(error).__name__), 502
@@ -198,7 +225,7 @@ def create_app(env=None, manager_factory=VehicleManager):
         except AuthenticationError:
             return jsonify(error='Kia authentication failed; command not sent', code='AuthenticationError'), 401
         except LookupError:
-            return jsonify(error='Configured VIN not found uniquely; command not sent'), 422
+            return jsonify(error='Configured Kia vehicle ID is unavailable; command not sent'), 422
         except Exception as error:
             app.logger.warning('Kia command failed for %s/%s: %s', alias, action, type(error).__name__)
             return jsonify(error='Kia request failed; completion is unknown. Check the Kia app before retrying.', code=type(error).__name__), 502

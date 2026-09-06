@@ -14,7 +14,7 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Set all values in `.env`; generate SECRET_KEY with `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`. Do not commit credentials, VINs, or account emails. PINs are strings, retaining leading zeros. Start with each vehicle's primary account; shared-driver access through the unofficial API has not been verified.
+Set all values in `.env`; generate SECRET_KEY with `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`. Do not commit credentials, VINs, or account emails. PINs are strings, retaining leading zeros. Start with each vehicle's primary account; shared-driver access through the unofficial API has not been verified. `*_VEHICLE_ID` is the Kia API identifier returned by the read-only discovery endpoint after login, not the VIN.
 
 ```sh
 .venv/bin/python -m pytest -q
@@ -33,7 +33,7 @@ Set all values in `.env`; generate SECRET_KEY with `python3 -c 'import secrets; 
    - The script uses one Gunicorn worker and four threads. Keep one process/worker: account locks and the 10-second command cooldown are in memory.
 5. Configure HTTPS in Forge. Replace the site's existing Nginx `location /` with `deploy/nginx-location.conf`; retain Forge SSL/ACME and dotfile protections. Remove unused PHP routing. Validate with `sudo nginx -t` before reloading. The API listens only on `127.0.0.1:8081`; do not open port 8081 publicly. Confirm that port is unused first, or change it in both files.
 6. If using Cloudflare, use Full (strict) TLS and make sure API requests can reach this hostname without browser challenges. Keep bearer authentication enabled in the app.
-7. Verify `/healthz`, then authenticated GET `/vehicles/telluride` and `/vehicles/ev9`. Each GET authenticates to Kia and returns only the exact VIN-matched vehicle's identity. It does not send a vehicle command. Confirm returned identities before configuring shortcuts.
+7. Verify `/healthz`, then authenticated GET `/vehicles/telluride/discover` and `/vehicles/ev9/discover`. Add the appropriate returned Kia API identifier to `TELLURIDE_VEHICLE_ID` and `EV9_VEHICLE_ID` in the protected `.env`, restart the process, and then verify `/vehicles/telluride` and `/vehicles/ev9`. The US Kia vehicle-list API does not expose VINs, so selection uses an explicit API identifier. These requests do not send vehicle commands.
 8. Deploy updates by pulling your chosen branch, installing `requirements.txt`, then restarting this background process through Forge. An example script is in `deploy/deploy.sh.example`; replace its path, branch, and daemon ID before using it.
 
 Forge process reference: https://laravel.com/forge/docs/resources/background-processes

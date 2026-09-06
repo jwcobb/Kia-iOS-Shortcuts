@@ -11,6 +11,7 @@ def setup():
     for alias, vin in [('TELLURIDE', 'A' * 17), ('EV9', 'B' * 17)]:
         for key, value in [('USERNAME', alias), ('PASSWORD', 'secret'), ('PIN', '0123'), ('VIN', vin)]:
             env[f'{alias}_{key}'] = value
+        env[f'{alias}_VEHICLE_ID'] = alias.lower()
     def factory(**kwargs):
         m = Mock()
         m.vehicles = {k: SimpleNamespace(id=k, VIN=v, name=k, model=k) for k,v in [('wrong','C'*17), ('telluride','A'*17), ('ev9','B'*17)]}
@@ -26,7 +27,7 @@ def test_health_and_auth_do_not_contact_kia(setup):
     assert c.post('/vehicles/ev9/unlock_car').status_code == 401
     for m in ms: m.check_and_refresh_token.assert_not_called()
 
-def test_exact_vin_and_correct_primary_account(setup):
+def test_exact_vehicle_id_and_correct_primary_account(setup):
     c, ms = setup
     assert c.post('/vehicles/ev9/lock_car', headers=H).status_code == 202
     ms[1].lock.assert_called_once_with('ev9')
@@ -35,7 +36,7 @@ def test_exact_vin_and_correct_primary_account(setup):
     assert c.post('/vehicles/telluride/lock_car', headers=H).status_code == 202
     ms[0].lock.assert_called_once_with('telluride')
 
-def test_missing_vin_fails_closed(setup):
+def test_missing_vehicle_id_fails_closed(setup):
     c, ms = setup
     ms[1].vehicles.pop('ev9')
     assert c.post('/vehicles/ev9/unlock_car', headers=H).status_code == 422
@@ -55,11 +56,11 @@ def test_error_does_not_leak_secrets(setup):
     assert r.status_code == 502
     assert b'password=secret' not in r.data
 
-def test_duplicate_vin_fails_closed(setup):
+def test_discovery_lists_kia_vehicle_ids(setup):
     c, ms = setup
-    ms[1].vehicles['duplicate'] = SimpleNamespace(id='duplicate', VIN='B'*17)
-    assert c.post('/vehicles/ev9/unlock_car', headers=H).status_code == 422
-    ms[1].unlock.assert_not_called()
+    r = c.get('/vehicles/ev9/discover', headers=H)
+    assert r.status_code == 200
+    assert {vehicle['id'] for vehicle in r.json['vehicles']} == {'wrong', 'telluride', 'ev9'}
 
 def test_climate_options_and_submission(setup):
     c, ms = setup
