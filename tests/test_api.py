@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 from main import create_app
+from hyundai_kia_connect_api.exceptions import AuthenticationOTPRequired
 
 @pytest.fixture
 def setup():
@@ -74,3 +75,12 @@ def test_configuration_fails_before_contacting_kia():
         create_app({})
     with pytest.raises(ValueError, match='TELLURIDE'):
         create_app({'SECRET_KEY':'x'*48})
+
+def test_otp_request_uses_the_selected_channel(setup):
+    c, ms = setup
+    ms[1].check_and_refresh_token.side_effect = AuthenticationOTPRequired()
+    r = c.post('/vehicles/ev9/otp/send', headers=H, json={'channel': 'email'})
+    assert r.status_code == 202
+    assert r.json['status'] == 'otp_sent'
+    assert ms[1].send_otp.call_args.args[0].value == 'EMAIL'
+    assert c.post('/vehicles/ev9/otp/send', headers=H, json={'channel': 'voice'}).status_code == 400

@@ -51,6 +51,24 @@ Create one shortcut per car/action using Get Contents of URL:
 
 A 202 response means submitted, not confirmed executed. Check the Kia app for actual state. A timeout or 502 can mean an uncertain outcome: do not automatically retry vehicle commands. A 409 means that account is busy; 429 means the 10-second cooldown is active. Missing/duplicate VIN matches fail closed. GET never operates a vehicle.
 
+## One-time Kia verification
+
+If `GET /vehicles/<alias>` returns `AuthenticationOTPRequired`, complete Kia verification from a Forge terminal before creating any shortcut. These setup endpoints require the same bearer secret, hold the short-lived code only in process memory, and save the resulting session token under `storage/tokens/` with owner-only permissions. Do not use them in iPhone Shortcuts.
+
+```sh
+cd /home/forge/kia.jcobb.org
+SECRET_KEY=$(.venv/bin/python -c 'from dotenv import dotenv_values; print(dotenv_values(".env")["SECRET_KEY"])')
+curl -sS -X POST -H "Authorization: Bearer $SECRET_KEY" -H 'Content-Type: application/json' \
+  --data '{"channel":"email"}' http://127.0.0.1:8081/vehicles/telluride/otp/send
+# Read the email, then enter its code in place of 123456. Do not save it in shell history.
+read -rs OTP_CODE; printf '\n'
+curl -sS -X POST -H "Authorization: Bearer $SECRET_KEY" -H 'Content-Type: application/json' \
+  --data "{\"code\":\"$OTP_CODE\"}" http://127.0.0.1:8081/vehicles/telluride/otp/verify
+unset OTP_CODE SECRET_KEY
+```
+
+Repeat for `ev9`. Use `"sms"` only if that account offers SMS verification. After each 200 response, verify it with `GET /vehicles/<alias>`. Treat `storage/tokens/*.json` as credentials: do not commit, download, or share those files.
+
 ## Known limits and validation
 
 This is an unofficial Kia integration. Both accounts' live login, MFA, API vehicle discovery, climate support and command execution still require verification. No live car commands were sent during development. The service does not implement an OTP entry flow; if Kia demands MFA that the library cannot complete, stop and resolve authentication before using shortcuts. Opening the Kia app is not guaranteed to resolve API authentication.
